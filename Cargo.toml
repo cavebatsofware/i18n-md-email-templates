@@ -1,0 +1,16 @@
+[package]
+name = "i18n-md-email-templates"
+version = "0.1.0"
+edition = "2021"
+authors = ["Grant DeFayette"]
+license = "LGPL-3.0-or-later"
+description = "Render localized, markdown-authored transactional emails (subject + styled HTML + plaintext) from i18n string catalogs"
+homepage = "https://grant.cavebatsofware.com/"
+readme = "README.md"
+repository = "https://github.com/cavebatsofware/i18n-md-email-templates"
+keywords = ["i18n", "email", "markdown", "localization", "template"]
+categories = ["email", "internationalization", "template-engine"]
+
+[dependencies]
+pulldown-cmark = "0.13"
+serde_json = "1.0"

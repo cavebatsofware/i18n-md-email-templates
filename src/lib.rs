@@ -37,5 +37,6 @@ mod tests;
 
 pub use catalog::Catalog;
 pub use render::{
-    html_escape, markdown_to_html, render, substitute, Cta, EmailTemplate, RenderedEmail, Vars,
+    html_escape, inline_css, markdown_to_html, markdown_to_text, render, substitute, Cta,
+    EmailTemplate, RenderedEmail, Vars,
 };

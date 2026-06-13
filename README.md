@@ -61,7 +61,25 @@ let email = render(&tmpl, &vars);
 - `{{token}}` placeholders are replaced in a single left-to-right pass; inserted values
   are never rescanned, and unknown tokens are left in place.
 - The layout shell uses `{{content}}` (rendered body + CTA) and an optional `{{footer}}`
-  slot, which are filled last so values can never collide with layout tokens.
+  slot, filled within the same single pass so a user value containing the literal text
+  `{{content}}`/`{{footer}}` cannot collide with them.
+
+## Email-client styling
+
+`render` emits the body with the layout's `<style>` block intact. Many email clients
+ignore embedded stylesheets, so call [`inline_css`] on the HTML body to rewrite those
+rules into element `style=` attributes (and strip the `<style>` tag). No remote or
+filesystem stylesheet loading is performed.
+
+```rust
+let email = render(&tmpl, &vars);
+let html = i18n_md_email_templates::inline_css(&email.html_body)
+    .unwrap_or(email.html_body);
+```
+
+The plaintext body (`text_body`) is produced with [`markdown_to_text`], which drops
+emphasis markers, code fences, inline HTML, and link URLs (keeping link text), so the
+text/plain part reads cleanly.
 
 ## License
 

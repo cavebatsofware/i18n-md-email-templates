@@ -17,7 +17,7 @@
 
 use std::collections::BTreeMap;
 
-use pulldown_cmark::{html, Options, Parser};
+use pulldown_cmark::{html, Event, Options, Parser, Tag, TagEnd};
 
 /// Runtime values interpolated into templates, keyed by `{{token}}` name.
 pub type Vars<'a> = BTreeMap<&'a str, String>;
@@ -63,14 +63,64 @@ pub fn html_escape(s: &str) -> String {
 /// This does not sanitize: the input is assumed to be your own template copy, not user
 /// input. Never feed untrusted content here.
 pub fn markdown_to_html(trusted_md: &str) -> String {
+    let parser = Parser::new_ext(trusted_md, gfm_options());
+    let mut out = String::new();
+    html::push_html(&mut out, parser);
+    out
+}
+
+/// Render markdown to clean plaintext for the text/plain body: emphasis markers, code
+/// fences, inline HTML, and link URLs are dropped (link text is kept); blocks are
+/// separated by blank lines. `{{token}}` placeholders pass through untouched.
+pub fn markdown_to_text(md: &str) -> String {
+    let parser = Parser::new_ext(md, gfm_options());
+    let mut out = String::new();
+    for event in parser {
+        match event {
+            Event::Text(t) | Event::Code(t) => out.push_str(&t),
+            Event::SoftBreak | Event::HardBreak => out.push('\n'),
+            Event::Start(Tag::Item) => out.push_str("- "),
+            Event::End(TagEnd::Item) => out.push('\n'),
+            Event::End(TagEnd::Paragraph)
+            | Event::End(TagEnd::Heading(_))
+            | Event::End(TagEnd::CodeBlock) => out.push_str("\n\n"),
+            _ => {}
+        }
+    }
+    // Collapse runs of 3+ newlines to two and trim the ends.
+    let mut collapsed = String::with_capacity(out.len());
+    let mut newlines = 0u32;
+    for ch in out.chars() {
+        if ch == '\n' {
+            newlines += 1;
+            if newlines <= 2 {
+                collapsed.push(ch);
+            }
+        } else {
+            newlines = 0;
+            collapsed.push(ch);
+        }
+    }
+    collapsed.trim().to_string()
+}
+
+/// Inline a document's `<style>` rules into element `style=` attributes and drop the
+/// `<style>` tag, so the rendered HTML keeps its styling in email clients that ignore
+/// embedded stylesheets. No remote or filesystem stylesheet loading is performed.
+pub fn inline_css(html: &str) -> Result<String, css_inline::InlineError> {
+    let inliner = css_inline::CSSInliner::options()
+        .load_remote_stylesheets(false)
+        .keep_link_tags(false)
+        .build();
+    inliner.inline(html)
+}
+
+fn gfm_options() -> Options {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_GFM);
-    let parser = Parser::new_ext(trusted_md, options);
-    let mut out = String::new();
-    html::push_html(&mut out, parser);
-    out
+    options
 }
 
 /// Replace `{{token}}` placeholders in a single left-to-right pass.
@@ -119,18 +169,22 @@ pub fn render(tmpl: &EmailTemplate, vars: &Vars) -> RenderedEmail {
         .map(|f| substitute(&markdown_to_html(f), &escaped))
         .unwrap_or_default();
 
-    let html_body = substitute(tmpl.layout, &escaped)
-        .replace("{{content}}", &content_html)
-        .replace("{{footer}}", &footer_html);
+    // Fill the layout in one pass: escaped user vars plus the `content`/`footer`
+    // slots. `substitute` never rescans inserted text, so a user value that happens
+    // to contain `{{content}}`/`{{footer}}` cannot collide with the layout slots.
+    let mut layout_vars = escaped;
+    layout_vars.insert("content", content_html);
+    layout_vars.insert("footer", footer_html);
+    let html_body = substitute(tmpl.layout, &layout_vars);
 
-    let mut text_body = substitute(tmpl.body_md, vars);
+    let mut text_body = substitute(&markdown_to_text(tmpl.body_md), vars);
     if let Some(cta) = &tmpl.cta {
         text_body.push_str("\n\n");
         text_body.push_str(&cta_text(cta));
     }
     if let Some(footer) = tmpl.footer_md {
         text_body.push_str("\n\n");
-        text_body.push_str(&substitute(footer, vars));
+        text_body.push_str(&substitute(&markdown_to_text(footer), vars));
     }
 
     RenderedEmail {

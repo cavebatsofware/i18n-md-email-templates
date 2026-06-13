@@ -17,7 +17,10 @@
 
 use serde_json::json;
 
-use crate::{html_escape, markdown_to_html, render, substitute, Catalog, Cta, EmailTemplate, Vars};
+use crate::{
+    html_escape, inline_css, markdown_to_html, markdown_to_text, render, substitute, Catalog, Cta,
+    EmailTemplate, Vars,
+};
 
 const LAYOUT: &str =
     "<html><body><h1>{{title}}</h1>{{content}}<footer>{{footer}}</footer></body></html>";
@@ -92,8 +95,9 @@ fn render_escapes_values_in_html_but_not_in_text() {
         .html_body
         .contains("Welcome <strong>&lt;script&gt;</strong>"));
     assert!(!rendered.html_body.contains("<script>"));
-    // Text body keeps the raw value.
-    assert!(rendered.text_body.contains("Welcome **<script>**"));
+    // Text body keeps the raw value but drops the markdown emphasis markers.
+    assert!(rendered.text_body.contains("Welcome <script>"));
+    assert!(!rendered.text_body.contains("**"));
 }
 
 #[test]
@@ -128,4 +132,52 @@ fn render_appends_cta_to_both_bodies() {
 #[test]
 fn html_escape_covers_all_five() {
     assert_eq!(html_escape("&<>\"'"), "&amp;&lt;&gt;&quot;&#39;");
+}
+
+#[test]
+fn markdown_to_text_strips_formatting() {
+    let text =
+        markdown_to_text("**Estimate:** $50\n\n[call](tel:+15551234)\n\n```\ncode {{x}}\n```");
+    // Emphasis markers, link URLs, and code fences are gone; link text and code content stay.
+    assert!(!text.contains("**"));
+    assert!(!text.contains("```"));
+    assert!(!text.contains("tel:"));
+    assert!(text.contains("Estimate: $50"));
+    assert!(text.contains("call"));
+    assert!(text.contains("code {{x}}"));
+}
+
+#[test]
+fn markdown_to_text_drops_inline_html() {
+    let text = markdown_to_text("Warning <strong class=\"warn\">danger</strong> here");
+    assert!(text.contains("danger"));
+    assert!(!text.contains("<strong"));
+    assert!(!text.contains("class=\"warn\""));
+}
+
+#[test]
+fn inline_css_inlines_and_strips_style_tag() {
+    let html = "<html><head><style>.btn { color: red; }</style></head>\
+                <body><a class=\"btn\">Go</a></body></html>";
+    let out = inline_css(html).unwrap();
+    // The rule is inlined onto the element and the <style> tag is removed.
+    assert!(out.contains("style=\"color: red"));
+    assert!(!out.contains("<style"));
+}
+
+#[test]
+fn render_value_cannot_collide_with_layout_slots() {
+    // A user value containing the literal text "{{footer}}" must NOT be replaced by
+    // the footer when the layout's slots are filled.
+    let tmpl = EmailTemplate {
+        layout: LAYOUT,
+        subject: "S",
+        body_md: "Message: {{msg}}",
+        cta: None,
+        footer_md: Some("real footer"),
+    };
+    let rendered = render(&tmpl, &vars(&[("msg", "{{footer}}"), ("title", "T")]));
+    // The user's literal "{{footer}}" survives in the body, distinct from the real footer.
+    assert!(rendered.html_body.contains("Message: {{footer}}"));
+    assert!(rendered.html_body.contains("<footer><p>real footer</p>"));
 }

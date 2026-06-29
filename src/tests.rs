@@ -137,12 +137,12 @@ fn html_escape_covers_all_five() {
 #[test]
 fn markdown_to_text_strips_formatting() {
     let text =
-        markdown_to_text("**Estimate:** $50\n\n[call](tel:+15551234)\n\n```\ncode {{x}}\n```");
+        markdown_to_text("**Estimate:** $60\n\n[call](tel:+15551234)\n\n```\ncode {{x}}\n```");
     // Emphasis markers, link URLs, and code fences are gone; link text and code content stay.
     assert!(!text.contains("**"));
     assert!(!text.contains("```"));
     assert!(!text.contains("tel:"));
-    assert!(text.contains("Estimate: $50"));
+    assert!(text.contains("Estimate: $60"));
     assert!(text.contains("call"));
     assert!(text.contains("code {{x}}"));
 }
